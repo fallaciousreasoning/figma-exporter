@@ -1,0 +1,19 @@
+{
+  "name": "test-2",
+  "id": "1257537593446579409",
+  "api": "1.0.0",
+  "main": "code.js",
+  "capabilities": [
+    "inspect"
+  ],
+  "enableProposedApi": false,
+  "editorType": [
+    "dev"
+  ],
+  "ui": "ui.html",
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  }
+}
