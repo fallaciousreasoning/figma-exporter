@@ -1,18 +1,22 @@
 console.clear();
 
-function createCollection(name) {
+function sanitizeName(name: string) {
+  return name.toLowerCase().replace(/[^a-zA-Z0-9-]/g, '-')
+}
+
+function createCollection(name: string) {
   const collection = figma.variables.createVariableCollection(name);
   const modeId = collection.modes[0].modeId;
   return { collection, modeId };
 }
 
-function createToken(collection, modeId, type, name, value) {
+function createToken(collection: VariableCollection, modeId: string, type: VariableResolvedDataType, name: string, value: VariableValue) {
   const token = figma.variables.createVariable(name, collection.id, type);
   token.setValueForMode(modeId, value);
   return token;
 }
 
-function createVariable(collection, modeId, key, valueKey, tokens) {
+function createVariable(collection: VariableCollection, modeId: string, key: string, valueKey: string, tokens: { [key: string]: Variable }) {
   const token = tokens[valueKey];
   return createToken(collection, modeId, token.resolvedType, key, {
     type: "VARIABLE_ALIAS",
