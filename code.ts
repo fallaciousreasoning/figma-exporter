@@ -130,6 +130,9 @@ function exportToJSON() {
   figma.ui.postMessage({ type: "EXPORT_RESULT", result });
 }
 
+// Indicates whether variable references should be preserved, or if the value
+// of the variable should be used instead.
+const PRESERVE_REFERENCES = false
 function processCollection({ name, modes, variableIds }) {
   const result = {}
   const onlyOneMode = modes.length === 1
@@ -148,10 +151,14 @@ function processCollection({ name, modes, variableIds }) {
         });
         obj.$type = resolvedType === "COLOR" ? "color" : "number";
         if (value.type === "VARIABLE_ALIAS") {
-          obj.$value = `{${figma.variables
-            .getVariableById(value.id)
-            .name.replace(/\//g, ".")}}`;
-          obj.foo = 'bar'
+          const ref = figma.variables.getVariableById(value.id)
+          if (!PRESERVE_REFERENCES) {
+            const modes = ref.valuesByMode;
+            const aliasedValue = Object.values(modes)[0]
+            obj.$value = resolvedType === "COLOR" ? rgbToHex(aliasedValue as any) : aliasedValue
+          } else {
+            obj.$value = `{${ref.name.replace(/\//g, ".")}}`
+          }
         } else {
           obj.$value = resolvedType === "COLOR" ? rgbToHex(value) : value;
         }
@@ -229,9 +236,9 @@ function parseColor(color) {
     const expandedHex =
       hexValue.length === 3
         ? hexValue
-            .split("")
-            .map((char) => char + char)
-            .join("")
+          .split("")
+          .map((char) => char + char)
+          .join("")
         : hexValue;
     return {
       r: parseInt(expandedHex.slice(0, 2), 16) / 255,
