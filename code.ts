@@ -126,23 +126,22 @@ function traverseToken({
 
 function exportToJSON() {
   const collections = figma.variables.getLocalVariableCollections();
-  const files = [];
-  collections.forEach((collection) =>
-    files.push(...processCollection(collection))
-  );
-  figma.ui.postMessage({ type: "EXPORT_RESULT", files });
+  const result = collections.map(processCollection).reduce((prev, next) => ({ ...prev, ...next }), {})
+  figma.ui.postMessage({ type: "EXPORT_RESULT", result });
 }
 
 function processCollection({ name, modes, variableIds }) {
-  const files = [];
+  const result = {}
+  const onlyOneMode = modes.length === 1
+
   modes.forEach((mode) => {
-    const file = { fileName: `${name}.${mode.name}.tokens.json`, body: {} };
+    const target: any = onlyOneMode ? result : (result[mode.name] = {})
     variableIds.forEach((variableId) => {
       const { name, resolvedType, valuesByMode } =
         figma.variables.getVariableById(variableId);
       const value: any = valuesByMode[mode.modeId];
       if (value !== undefined && ["COLOR", "FLOAT"].includes(resolvedType)) {
-        let obj: any = file.body;
+        let obj: any = target;
         name.split("/").forEach((groupName) => {
           obj[groupName] = obj[groupName] || {};
           obj = obj[groupName];
@@ -152,14 +151,14 @@ function processCollection({ name, modes, variableIds }) {
           obj.$value = `{${figma.variables
             .getVariableById(value.id)
             .name.replace(/\//g, ".")}}`;
+          obj.foo = 'bar'
         } else {
           obj.$value = resolvedType === "COLOR" ? rgbToHex(value) : value;
         }
       }
     });
-    files.push(file);
   });
-  return files;
+  return result;
 }
 
 figma.ui.onmessage = (e) => {
