@@ -8,7 +8,20 @@ function sanitizeName(name: string) {
 
 function exportToJSON() {
   const collections = figma.variables.getLocalVariableCollections();
-  const result = collections.map(processCollection).reduce((prev, next) => ({ ...prev, ...next }), {})
+
+  // We go to a bit of effort to get our tokens into a format that styled-tokens
+  // will understand. All color sets belong under a top level 'color' heading.
+  // There is no easy way to determine if a set is for colors, so we check to
+  // see if the set name contains the word 'color'. High tech, I know :D
+  const result = collections.map(processCollection).reduce((prev, next) => {
+    let target = prev
+    if (next.name.toLowerCase().includes('color')) {
+      target = prev.color ?? (prev.color = {})
+    }
+    Object.assign(target, next.result)
+    return prev
+  }, {} as any)
+
   const sanitized = JSON.parse(JSON.stringify(result, (key, value) => {
     if (value && typeof value === "object") {
       return Object.entries(value).reduce((prev, [key, value]) => ({
@@ -18,13 +31,14 @@ function exportToJSON() {
     }
     return value
   }))
+
   figma.ui.postMessage({ type: "EXPORT_RESULT", result: sanitized });
 }
 
 // Indicates whether variable references should be preserved, or if the value
 // of the variable should be used instead.
 const PRESERVE_REFERENCES = false
-function processCollection({ name, modes, variableIds }) {
+function processCollection({ name, modes, variableIds }: VariableCollection) {
   const result = {}
   const onlyOneMode = modes.length === 1
 
@@ -56,7 +70,11 @@ function processCollection({ name, modes, variableIds }) {
       }
     });
   });
-  return result;
+
+  return {
+    name,
+    result
+  }
 }
 
 figma.ui.onmessage = (e) => {
