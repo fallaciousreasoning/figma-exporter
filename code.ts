@@ -1,7 +1,8 @@
 console.clear();
 
 function sanitizeName(name: string) {
-  return name.toLowerCase().replace(/[^a-zA-Z0-9-]/g, '-')
+  return name.toLowerCase()
+    .replace(/[^a-zA-Z0-9-.]/g, '-')
 }
 
 function createCollection(name: string) {
@@ -33,7 +34,7 @@ function importJSONFile({ fileName, body }) {
     traverseToken({
       collection,
       modeId,
-      type: json.$type,
+      type: json.type,
       key,
       object,
       tokens,
@@ -59,7 +60,7 @@ function processAliases({ collection, modeId, aliases, tokens }) {
   }
 }
 
-function isAlias(value) {
+function isAlias(value: VariableValue) {
   return value.toString().trim().charAt(0) === "{";
 }
 
@@ -72,14 +73,14 @@ function traverseToken({
   tokens,
   aliases,
 }) {
-  type = type || object.$type;
+  type = type || object.type;
   // if key is a meta field, move on
   if (key.charAt(0) === "$") {
     return;
   }
-  if (object.$value !== undefined) {
-    if (isAlias(object.$value)) {
-      const valueKey = object.$value
+  if (object.value !== undefined) {
+    if (isAlias(object.value)) {
+      const valueKey = object.value
         .trim()
         .replace(/\./g, "/")
         .replace(/[\{\}]/g, "");
@@ -98,7 +99,7 @@ function traverseToken({
         modeId,
         "COLOR",
         key,
-        parseColor(object.$value)
+        parseColor(object.value)
       );
     } else if (type === "number") {
       tokens[key] = createToken(
@@ -106,7 +107,7 @@ function traverseToken({
         modeId,
         "FLOAT",
         key,
-        object.$value
+        object.value
       );
     } else {
       console.log("unsupported type", type, object);
@@ -131,7 +132,17 @@ function traverseToken({
 function exportToJSON() {
   const collections = figma.variables.getLocalVariableCollections();
   const result = collections.map(processCollection).reduce((prev, next) => ({ ...prev, ...next }), {})
-  figma.ui.postMessage({ type: "EXPORT_RESULT", result });
+
+  const sanitized = JSON.parse(JSON.stringify(result, (key, value) => {
+    if (value && typeof value === "object") {
+      return Object.entries(value).reduce((prev, [key, value]) => ({
+        ...prev,
+        [sanitizeName(key)]: value
+      }), {})
+    }
+    return value
+  }))
+  figma.ui.postMessage({ type: "EXPORT_RESULT", result: sanitized });
 }
 
 // Indicates whether variable references should be preserved, or if the value
@@ -153,18 +164,18 @@ function processCollection({ name, modes, variableIds }) {
           obj[groupName] = obj[groupName] || {};
           obj = obj[groupName];
         });
-        obj.$type = resolvedType === "COLOR" ? "color" : "number";
+        obj.type = resolvedType === "COLOR" ? "color" : "number";
         if (value.type === "VARIABLE_ALIAS") {
           const ref = figma.variables.getVariableById(value.id)
           if (!PRESERVE_REFERENCES) {
             const modes = ref.valuesByMode;
             const aliasedValue = Object.values(modes)[0]
-            obj.$value = resolvedType === "COLOR" ? rgbToHex(aliasedValue as any) : aliasedValue
+            obj.value = resolvedType === "COLOR" ? rgbToHex(aliasedValue as any) : aliasedValue
           } else {
-            obj.$value = `{${ref.name.replace(/\//g, ".")}}`
+            obj.value = `{${ref.name.replace(/\//g, ".")}}`
           }
         } else {
-          obj.$value = resolvedType === "COLOR" ? rgbToHex(value) : value;
+          obj.value = resolvedType === "COLOR" ? rgbToHex(value) : value;
         }
       }
     });
