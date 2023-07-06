@@ -1,13 +1,42 @@
 console.clear();
 
+interface Collection {
+  id: string,
+  variableIds: string[],
+  name: string,
+  modes: {
+    modeId: string
+    name: string
+  }[]
+}
+
 function sanitizeName(name: string) {
   return name.toLowerCase() // Names should be lower case
     .replace('%', '') // Don't export % in the names
     .replace(/[^a-zA-Z0-9-.]/g, '-') // Any special characters should be replaced with a -
 }
 
-function exportToJSON() {
-  const collections = figma.variables.getLocalVariableCollections();
+async function exportToJSON() {
+  const collections: Collection[] = []
+  try {
+    const v = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync()
+    const remoteCollections = await Promise.all(v.map(async c => {
+      const variables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(c.libraryName);
+
+      const result: Collection = {
+        id: c.libraryName,
+        name: c.name,
+        variableIds: variables.map(v => v.key),
+        modes: [{ modeId: 'default', name: 'Default' }]
+      }
+      return result
+    }))
+    collections.push(...remoteCollections)
+  } catch (err: any) {
+    console.error(err)
+  }
+
+  collections.push(...figma.variables.getLocalVariableCollections());
 
   // We go to a bit of effort to get our tokens into a format that styled-tokens
   // will understand. All color sets belong under a top level 'color' heading.
@@ -38,7 +67,7 @@ function exportToJSON() {
 // Indicates whether variable references should be preserved, or if the value
 // of the variable should be used instead.
 const PRESERVE_REFERENCES = false
-function processCollection({ name, modes, variableIds }: VariableCollection) {
+function processCollection({ name, modes, variableIds }: Collection) {
   const result = {}
   const onlyOneMode = modes.length === 1
 
@@ -79,7 +108,7 @@ function processCollection({ name, modes, variableIds }: VariableCollection) {
 
 figma.ui.onmessage = (e) => {
   if (e.type === "EXPORT") {
-    exportToJSON();
+    return exportToJSON().then(c => console.log("Don"));
   }
 };
 

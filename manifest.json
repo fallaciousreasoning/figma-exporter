@@ -1,19 +1,9 @@
 {
-  "name": "test-2",
+  "name": "Export Variables",
   "id": "1257537593446579409",
   "api": "1.0.0",
+  "editorType": ["figma"],
+  "permissions": ["teamlibrary"],
   "main": "code.js",
-  "capabilities": [
-    "inspect"
-  ],
-  "enableProposedApi": false,
-  "editorType": [
-    "dev"
-  ],
-  "ui": "ui.html",
-  "networkAccess": {
-    "allowedDomains": [
-      "none"
-    ]
-  }
+  "ui":"ui.html"
 }
