@@ -1,6 +1,8 @@
 <style>
   :root {
     --spacing: 0.8rem;
+    --spinner-size: 32px;
+    --spinner-padding: 8px;
   }
 
   * {
@@ -67,18 +69,63 @@
 
   #export {
     background-color: var(--figma-color-bg-component);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .spinner {
+    display: block;
+    width: var(--spinner-size);
+    height: var(--spinner-size);
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .spinner:after {
+    content: " ";
+    display: block;
+    width: calc(var(--spinner-size) - var(--spinner-padding) * 2);
+    height: calc(var(--spinner-size) - var(--spinner-padding) * 2);
+    border-radius: 50%;
+    border: 4px solid #fff;
+    border-color: #fff transparent #fff transparent;
+    animation: spinner 1.2s linear infinite;
+  }
+
+  @keyframes spinner {
+    0% {
+      transform: rotate(0deg);
+    }
+
+    100% {
+      transform: rotate(360deg);
+    }
   }
 </style>
 <main>
-  <button id="export" type="button">Export Variables</button>
+  <button id="export" type="button">
+    <div class="spinner"></div>
+    <span>Export Variables</span>
+  </button>
+  <a id="downloadLink" hidden download="variables.json" target="_blank" rel="noopener noreferrer">Download Variables</a>
   <textarea
     placeholder="Exported variables will render here..."
     readonly></textarea>
 </main>
 <script async>
   window.onmessage = ({ data: { pluginMessage } }) => {
+    const json = JSON.stringify(pluginMessage.result, null, 2)
+    const blobUrl = URL.createObjectURL(new Blob([json], { type: "application/json" }))
+    downloadLink.href = blobUrl
+    downloadLink.removeAttribute('hidden')
+
     if (pluginMessage.type === "EXPORT_RESULT") {
-      document.querySelector("textarea").innerHTML = JSON.stringify(pluginMessage.result, null, 2)
+      document.querySelector("textarea").innerHTML = json
     }
   };
   document.getElementById("export").addEventListener("click", () => {

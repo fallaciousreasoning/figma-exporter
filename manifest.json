@@ -2,7 +2,8 @@
   "name": "Export Variables",
   "id": "1257537593446579409",
   "api": "1.0.0",
-  "editorType": ["figma"],
+  "editorType": ["figma", "dev"],
+  "capabilities": ["inspect"],
   "permissions": ["teamlibrary"],
   "main": "code.js",
   "ui":"ui.html"

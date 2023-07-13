@@ -4,6 +4,7 @@ interface Collection {
   id: string,
   variableIds: string[],
   name: string,
+  remote?: boolean,
   modes: {
     modeId: string
     name: string
@@ -21,13 +22,13 @@ async function exportToJSON() {
   try {
     const v = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync()
     const remoteCollections = await Promise.all(v.map(async c => {
-      const variables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(c.libraryName);
-
+      const variables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(c.key);
       const result: Collection = {
         id: c.libraryName,
         name: c.name,
         variableIds: variables.map(v => v.key),
-        modes: [{ modeId: 'default', name: 'Default' }]
+        modes: [{ modeId: 'default', name: 'Default' }],
+        remote: true
       }
       return result
     }))
@@ -42,7 +43,8 @@ async function exportToJSON() {
   // will understand. All color sets belong under a top level 'color' heading.
   // There is no easy way to determine if a set is for colors, so we check to
   // see if the set name contains the word 'color'. High tech, I know :D
-  const result = collections.map(processCollection).reduce((prev, next) => {
+  const processedCollections = await Promise.all(collections.map(processCollection))
+  const result = processedCollections.reduce((prev, next) => {
     let target = prev
     if (next.name.toLowerCase().includes('color')) {
       target = prev.color ?? (prev.color = {})
@@ -67,15 +69,16 @@ async function exportToJSON() {
 // Indicates whether variable references should be preserved, or if the value
 // of the variable should be used instead.
 const PRESERVE_REFERENCES = false
-function processCollection({ name, modes, variableIds }: Collection) {
+async function processCollection({ name, modes, variableIds, remote }: Collection) {
   const result = {}
   const onlyOneMode = modes.length === 1
 
-  modes.forEach((mode) => {
+  for (const mode of modes) {
     const target: any = onlyOneMode ? result : (result[mode.name] = {})
-    variableIds.forEach((variableId) => {
-      const { name, resolvedType, valuesByMode } =
-        figma.variables.getVariableById(variableId);
+    for (const variableId of variableIds) {
+      // Library variables need to be imported by key
+      const method: (keyof typeof figma.variables) = remote ? 'importVariableByKeyAsync' : 'getVariableById'
+      const { name, resolvedType, valuesByMode } = await figma.variables[method](variableId);
       const value: any = valuesByMode[mode.modeId];
       if (value !== undefined && ["COLOR", "FLOAT"].includes(resolvedType)) {
         let obj: any = target;
@@ -97,8 +100,8 @@ function processCollection({ name, modes, variableIds }: Collection) {
           obj.value = resolvedType === "COLOR" ? rgbToHex(value) : value;
         }
       }
-    });
-  });
+    }
+  }
 
   return {
     name,
@@ -108,7 +111,7 @@ function processCollection({ name, modes, variableIds }: Collection) {
 
 figma.ui.onmessage = (e) => {
   if (e.type === "EXPORT") {
-    return exportToJSON().then(c => console.log("Don"));
+    return exportToJSON()
   }
 };
 
