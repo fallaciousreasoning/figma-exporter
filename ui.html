@@ -1,8 +1,8 @@
 <style>
   :root {
     --spacing: 0.8rem;
-    --spinner-size: 32px;
-    --spinner-padding: 8px;
+    --spinner-size: 20px;
+    --spinner-padding: 2px;
   }
 
   * {
@@ -58,7 +58,7 @@
   }
 
   button {
-    background-color: var(--figma-color-bg-brand);
+    background-color: var(--figma-color-bg-component);
     border: none;
     color: var(--figma-color-text-onbrand);
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -67,8 +67,15 @@
     font-weight: bold;
   }
 
-  #export {
-    background-color: var(--figma-color-bg-component);
+  button:hover {
+    background-color: var(--figma-color-bg-component-hover);
+  }
+
+  button[disabled] {
+    background-color: var(--figma-color-bg-disabled);
+  }
+
+  #exportButton {
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -92,7 +99,7 @@
     width: calc(var(--spinner-size) - var(--spinner-padding) * 2);
     height: calc(var(--spinner-size) - var(--spinner-padding) * 2);
     border-radius: 50%;
-    border: 4px solid #fff;
+    border: 2px solid #fff;
     border-color: #fff transparent #fff transparent;
     animation: spinner 1.2s linear infinite;
   }
@@ -108,27 +115,48 @@
   }
 </style>
 <main>
-  <button id="export" type="button">
+  <button id="exportButton" type="button" disabled>
     <div class="spinner"></div>
-    <span>Export Variables</span>
+    <span>Loading...</span>
   </button>
-  <a id="downloadLink" hidden download="variables.json" target="_blank" rel="noopener noreferrer">Download Variables</a>
   <textarea
     placeholder="Exported variables will render here..."
     readonly></textarea>
 </main>
 <script async>
-  window.onmessage = ({ data: { pluginMessage } }) => {
-    const json = JSON.stringify(pluginMessage.result, null, 2)
-    const blobUrl = URL.createObjectURL(new Blob([json], { type: "application/json" }))
-    downloadLink.href = blobUrl
-    downloadLink.removeAttribute('hidden')
+  let lastData = ''
 
+  window.onmessage = ({ data: { pluginMessage } }) => {
     if (pluginMessage.type === "EXPORT_RESULT") {
+      const json = JSON.stringify(pluginMessage.result, null, 2)
       document.querySelector("textarea").innerHTML = json
+      exportButton.removeAttribute('disabled')
+      exportButton.innerHTML = "Download"
     }
   };
-  document.getElementById("export").addEventListener("click", () => {
-    parent.postMessage({ pluginMessage: { type: "EXPORT" } }, "*");
-  });
+
+  // As soon as we load, start the export process.
+  document.addEventListener('DOMContentLoaded', () => {
+    parent.postMessage({ pluginMessage: { type: 'EXPORT' } }, "*")
+  })
+
+  exportButton.addEventListener('click', () => {
+    downloadData(document.querySelector("textarea").innerHTML, 'variables.json', 'application/json')
+  })
+
+  function downloadData(data, name, type) {
+    const blobUrl = URL.createObjectURL(new Blob([data], { type }))
+
+    const a = document.createElement('a')
+    a.setAttribute('download', name)
+    a.setAttribute('target', '_blank')
+    a.setAttribute('href', blobUrl)
+
+    // Download the file
+    document.body.append(a)
+    a.click()
+    a.remove()
+
+    URL.revokeObjectURL(blobUrl)
+  }
 </script>
