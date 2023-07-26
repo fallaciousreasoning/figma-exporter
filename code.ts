@@ -1,5 +1,13 @@
 console.clear();
 
+// These group names will be ignored in the generated variables file. For
+// example, this means Themable/Dark/Pink/10 will be exported as
+// color.dark.pink[10] in the JSON
+const IGNORE_GROUP_NAMES = [
+  'Semantic',
+  'Themable'
+]
+
 interface Collection {
   id: string,
   variableIds: string[],
@@ -83,6 +91,9 @@ async function processCollection({ name, modes, variableIds, remote }: Collectio
       if (value !== undefined && ["COLOR", "FLOAT"].includes(resolvedType)) {
         let obj: any = target;
         name.split("/").forEach((groupName) => {
+          if (IGNORE_GROUP_NAMES.includes(groupName)) {
+            return
+          }
           obj[groupName] = obj[groupName] || {};
           obj = obj[groupName];
         });
