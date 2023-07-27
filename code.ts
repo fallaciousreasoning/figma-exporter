@@ -1,12 +1,14 @@
 console.clear();
 
-// These group names will be ignored in the generated variables file. For
-// example, this means Themable/Dark/Pink/10 will be exported as
-// color.dark.pink[10] in the JSON
-const IGNORE_GROUP_NAMES = [
-  'Semantic',
-  'Themable'
-]
+// These group names will be mapped in the generated variables file. null group
+// names will be skipped. For example, this means Themable/Dark/Pink/10 will be
+// exported as color.dark.pink[10] in the JSON and
+// Semantic/Dialogs-and-modals/Divider will be color.dialog.divider
+const MAP_GROUP_NAMES = {
+  'Dialogs-and-modals': 'Dialogs',
+  'Semantic': null,
+  'Themable': null
+}
 
 interface Collection {
   id: string,
@@ -91,9 +93,12 @@ async function processCollection({ name, modes, variableIds, remote }: Collectio
       if (value !== undefined && ["COLOR", "FLOAT"].includes(resolvedType)) {
         let obj: any = target;
         name.split("/").forEach((groupName) => {
-          if (IGNORE_GROUP_NAMES.includes(groupName)) {
+          const mapping = MAP_GROUP_NAMES[groupName]
+          if (mapping === null) {
             return
           }
+
+          groupName = mapping ?? groupName
           obj[groupName] = obj[groupName] || {};
           obj = obj[groupName];
         });
