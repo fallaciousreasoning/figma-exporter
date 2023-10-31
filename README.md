@@ -13,7 +13,7 @@ format which [Nala](https://github.com/brave/leo) can understand.
 
 ## Usage
 
-1. Download the latest release
+1. Download the [latest release](https://github.com/fallaciousreasoning/figma-exporter/releases)
 2. Unzip the files
 3. Load a new development plugin in Figma ![load development plugin](screenshots/load-dev-plugin.png) in the file you want to export the variables from.
 4. Run the plugin ![Run Plugin](screenshots/run-plugin.png)
