@@ -25,6 +25,8 @@ function sanitizeName(name: string) {
   return name.toLowerCase() // Names should be lower case
     .replace('%', '') // Don't export % in the names
     .replace(/[^a-zA-Z0-9-.]/g, '-') // Any special characters should be replaced with a -
+    .replace(/(--+)|(^-)/, '-') // Replace multiple `-`s with a single `-`
+    .replace(/^-/g, '') // Remove leading `-`
 }
 
 async function exportToJSON() {
@@ -76,6 +78,18 @@ async function exportToJSON() {
   figma.ui.postMessage({ type: "EXPORT_RESULT", result: sanitized });
 }
 
+const getVariableValue = async (variable: VariableValue) => {
+  if (typeof variable === 'object' && ('type' in variable) && variable.type === "VARIABLE_ALIAS") {
+    const aliased = await figma.variables.getVariableById(variable.id)
+
+    // TODO: Why do we always take the value for the first mode?
+    const mode = Object.values(aliased.valuesByMode)[0]
+    return getVariableValue(mode)
+  }
+
+  return variable
+}
+
 // Indicates whether variable references should be preserved, or if the value
 // of the variable should be used instead.
 const PRESERVE_REFERENCES = false
@@ -104,12 +118,11 @@ async function processCollection({ name, modes, variableIds, remote }: Collectio
         });
         obj.type = resolvedType === "COLOR" ? "color" : "number";
         if (value.type === "VARIABLE_ALIAS") {
-          const ref = figma.variables.getVariableById(value.id)
           if (!PRESERVE_REFERENCES) {
-            const modes = ref.valuesByMode;
-            const aliasedValue = Object.values(modes)[0]
-            obj.value = resolvedType === "COLOR" ? rgbToHex(aliasedValue as any) : aliasedValue
+            const resolvedValue = await getVariableValue(value)
+            obj.value = resolvedType === "COLOR" ? rgbToHex(resolvedValue) : resolvedValue
           } else {
+            const ref = figma.variables.getVariableById(value.id)
             obj.value = `{${ref.name.replace(/\//g, ".")}}`
           }
         } else {
