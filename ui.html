@@ -115,29 +115,62 @@
   }
 </style>
 <main>
-  <button id="exportButton" type="button" disabled>
+  <label>
+    <input id="preserveReferencesCheckbox" class="disableable" type="checkbox" />
+    Preserve References
+  </label>
+  <button id="exportButton" class="disableable" type="button">
     <div class="spinner"></div>
     <span>Loading...</span>
   </button>
   <textarea
+    id="resultText"
     placeholder="Exported variables will render here..."
     readonly></textarea>
 </main>
 <script async>
   let lastData = ''
 
+  function requestData() {
+    const preserveReferences = preserveReferencesCheckbox.checked
+    parent.postMessage({
+      pluginMessage: {
+        type: 'EXPORT',
+        preserveReferences
+      }
+    }, "*")
+
+    exportButton.innerHTML = `
+      <div class="spinner"></div>
+      <span>Loading...</span>
+    `
+
+    resultText.innerHTML = ``
+
+    for (const disable of document.querySelectorAll('.disableable')) {
+      disable.setAttribute('disabled', '')
+    }
+  }
+
   window.onmessage = ({ data: { pluginMessage } }) => {
     if (pluginMessage.type === "EXPORT_RESULT") {
       const json = JSON.stringify(pluginMessage.result, null, 2)
-      document.querySelector("textarea").innerHTML = json
-      exportButton.removeAttribute('disabled')
+      resultText.innerHTML = json
       exportButton.innerHTML = "Download"
+
+      for (const disable of document.querySelectorAll('.disableable')) {
+        disable.removeAttribute('disabled')
+      }
     }
   };
 
   // As soon as we load, start the export process.
   document.addEventListener('DOMContentLoaded', () => {
-    parent.postMessage({ pluginMessage: { type: 'EXPORT' } }, "*")
+    preserveReferencesCheckbox.addEventListener('change', e => {
+      requestData()
+    })
+
+    requestData()
   })
 
   exportButton.addEventListener('click', () => {
