@@ -131,7 +131,7 @@ async function processCollection({ name, modes, variableIds, remote }: Collectio
             obj.value = resolvedType === "COLOR" ? rgbToHex(resolvedValue) : resolvedValue
           } else {
             const ref = figma.variables.getVariableById(value.id)
-            obj.value = `{${getVariableAlias(ref)}}`
+            obj.value = `$${getVariableAlias(ref)}`
           }
         } else {
           obj.value = resolvedType === "COLOR" ? rgbToHex(value) : value;
