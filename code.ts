@@ -21,12 +21,6 @@ interface Collection {
   }[]
 }
 
-interface Options {
-  // Indicates whether variable references should be preserved, or if the value
-  // of the variable should be used instead.
-  preserveReferences: boolean
-}
-
 function sanitizeName(name: string) {
   return name.toLowerCase() // Names should be lower case
     .replace('%', '') // Don't export % in the names
@@ -40,7 +34,7 @@ const getVariableAlias = (reference: Variable) => reference.name
   .map(sanitizeName)
   .join('.')
 
-async function exportToJSON(options: Options) {
+async function exportToJSON() {
   const collections: Collection[] = []
   try {
     const v = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync()
@@ -66,7 +60,7 @@ async function exportToJSON(options: Options) {
   // will understand. All color sets belong under a top level 'color' heading.
   // There is no easy way to determine if a set is for colors, so we check to
   // see if the set name contains the word 'color'. High tech, I know :D
-  const processedCollections = await Promise.all(collections.map(c => processCollection(c, options)))
+  const processedCollections = await Promise.all(collections.map(c => processCollection(c)))
   const result = processedCollections.reduce((prev, next) => {
     let target = prev
     if (next.name.toLowerCase().includes('color')) {
@@ -101,7 +95,7 @@ const getVariableValue = async (variable: VariableValue) => {
   return variable
 }
 
-async function processCollection({ name, modes, variableIds, remote }: Collection, options: Options) {
+async function processCollection({ name, modes, variableIds, remote }: Collection) {
   const result = {}
   const onlyOneMode = modes.length === 1
 
@@ -126,13 +120,11 @@ async function processCollection({ name, modes, variableIds, remote }: Collectio
         });
         obj.type = resolvedType === "COLOR" ? "color" : "number";
         if (value.type === "VARIABLE_ALIAS") {
-          if (!options.preserveReferences) {
-            const resolvedValue = await getVariableValue(value)
-            obj.value = resolvedType === "COLOR" ? rgbToHex(resolvedValue) : resolvedValue
-          } else {
-            const ref = figma.variables.getVariableById(value.id)
-            obj.value = `$${getVariableAlias(ref)}`
-          }
+          const resolvedValue = await getVariableValue(value)
+          obj.value = resolvedType === "COLOR" ? rgbToHex(resolvedValue as any) : resolvedValue
+
+          const ref = figma.variables.getVariableById(value.id)
+          obj.aliases = `$${getVariableAlias(ref)}`
         } else {
           obj.value = resolvedType === "COLOR" ? rgbToHex(value) : value;
         }
@@ -148,9 +140,7 @@ async function processCollection({ name, modes, variableIds, remote }: Collectio
 
 figma.ui.onmessage = (e) => {
   if (e.type === "EXPORT") {
-    return exportToJSON({
-      preserveReferences: e.preserveReferences
-    })
+    return exportToJSON()
   }
 };
 

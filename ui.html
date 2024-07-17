@@ -115,10 +115,6 @@
   }
 </style>
 <main>
-  <label>
-    <input id="preserveReferencesCheckbox" class="disableable" type="checkbox" />
-    Preserve References
-  </label>
   <button id="exportButton" class="disableable" type="button">
     <div class="spinner"></div>
     <span>Loading...</span>
@@ -132,11 +128,9 @@
   let lastData = ''
 
   function requestData() {
-    const preserveReferences = preserveReferencesCheckbox.checked
     parent.postMessage({
       pluginMessage: {
         type: 'EXPORT',
-        preserveReferences
       }
     }, "*")
 
@@ -166,10 +160,6 @@
 
   // As soon as we load, start the export process.
   document.addEventListener('DOMContentLoaded', () => {
-    preserveReferencesCheckbox.addEventListener('change', e => {
-      requestData()
-    })
-
     requestData()
   })
 
