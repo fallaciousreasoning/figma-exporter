@@ -22,6 +22,7 @@ interface Collection {
 }
 
 function sanitizeName(name: string) {
+  if (name === 'referencedVariable') return name
   return name.toLowerCase() // Names should be lower case
     .replace('%', '') // Don't export % in the names
     .replace(/[^a-zA-Z0-9-.]/g, '-') // Any special characters should be replaced with a -
@@ -124,7 +125,7 @@ async function processCollection({ name, modes, variableIds, remote }: Collectio
           obj.value = resolvedType === "COLOR" ? rgbToHex(resolvedValue as any) : resolvedValue
 
           const ref = figma.variables.getVariableById(value.id)
-          obj.aliases = `$${getVariableAlias(ref)}`
+          obj.referencedVariable = `$${getVariableAlias(ref)}`
         } else {
           obj.value = resolvedType === "COLOR" ? rgbToHex(value) : value;
         }
