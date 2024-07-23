@@ -32,6 +32,11 @@ function sanitizeName(name: string) {
 
 const getVariableAlias = (reference: Variable) => reference.name
   .split(/\//g)
+  .map(r => {
+    if (r in MAP_GROUP_NAMES) return MAP_GROUP_NAMES[r]
+    return r
+  })
+  .filter(r => r !== null)
   .map(sanitizeName)
   .join('.')
 
