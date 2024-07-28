@@ -89,13 +89,13 @@ async function exportToJSON() {
   figma.ui.postMessage({ type: "EXPORT_RESULT", result: sanitized });
 }
 
-const getVariableValue = async (variable: VariableValue) => {
+const getVariableValue = async (variable: VariableValue, modeId: string) => {
   if (typeof variable === 'object' && ('type' in variable) && variable.type === "VARIABLE_ALIAS") {
     const aliased = await figma.variables.getVariableById(variable.id)
 
-    // TODO: Why do we always take the value for the first mode?
-    const mode = Object.values(aliased.valuesByMode)[0]
-    return getVariableValue(mode)
+    // If we have a mode in the alias which matches the mode of our variable, use that. Otherwise just take the first mode.
+    const mode = aliased.valuesByMode[modeId] ?? Object.values(aliased.valuesByMode)[0]
+    return getVariableValue(mode, modeId)
   }
 
   return variable
@@ -126,7 +126,7 @@ async function processCollection({ name, modes, variableIds, remote }: Collectio
         });
         obj.type = resolvedType === "COLOR" ? "color" : "number";
         if (value.type === "VARIABLE_ALIAS") {
-          const resolvedValue = await getVariableValue(value)
+          const resolvedValue = await getVariableValue(value, mode.modeId)
           obj.value = resolvedType === "COLOR" ? rgbToHex(resolvedValue as any) : resolvedValue
 
           const ref = figma.variables.getVariableById(value.id)
