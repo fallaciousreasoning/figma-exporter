@@ -76,7 +76,8 @@ async function exportToJSON() {
     return prev
   }, {} as any)
 
-  const sanitized = JSON.parse(JSON.stringify(result, (key, value) => {
+  const sorted = Object.keys(result).sort().reduce((prev, next) => ({ ...prev, [next]: result[next] }), {})
+  const sanitized = JSON.parse(JSON.stringify(sorted, (key, value) => {
     if (value && typeof value === "object") {
       return Object.entries(value).reduce((prev, [key, value]) => ({
         ...prev,
@@ -104,7 +105,6 @@ const getVariableValue = async (variable: VariableValue, modeId: string) => {
 async function processCollection({ name, modes, variableIds, remote }: Collection) {
   const result = {}
   const onlyOneMode = modes.length === 1
-
   for (const mode of modes) {
     const target: any = onlyOneMode ? result : (result[mode.name] = {})
     for (const variableId of variableIds) {
@@ -138,9 +138,15 @@ async function processCollection({ name, modes, variableIds, remote }: Collectio
     }
   }
 
+  const maybeWrapped = name.toLowerCase().includes('typography')
+    ? {
+      typography: result
+    }
+    : result
+
   return {
     name,
-    result
+    result: maybeWrapped
   }
 }
 
