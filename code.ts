@@ -151,7 +151,7 @@ async function resolveColorExpression({ expressionFunction, expressionArguments 
 // channels it baked in came from whichever mode we happened to resolve. Keeping
 // the referenced colour and the opacity apart lets a consumer rebuild the colour
 // per theme, the same way it does for a plain reference.
-async function describeColorComposition(value: any, modeId: string): Promise<{ variable: Variable, opacity: number } | null> {
+async function describeColorComposition(value: any, modeId: string): Promise<{ variable: Variable, opacity: number, expressionFunction: string } | null> {
   if (!isColorExpression(value) || value.expressionFunction !== 'COMPOSE_COLOR') return null
 
   const [colorArgument, opacityArgument] = value.expressionArguments
@@ -164,7 +164,11 @@ async function describeColorComposition(value: any, modeId: string): Promise<{ v
   // multiplies the opacities down the chain rather than replacing them.
   const nested = await describeColorComposition(colorArgument, modeId)
   if (nested) {
-    return { variable: nested.variable, opacity: nested.opacity * (opacity / 100) }
+    return {
+      variable: nested.variable,
+      opacity: nested.opacity * (opacity / 100),
+      expressionFunction: value.expressionFunction
+    }
   }
 
   // Anything other than a reference - a literal colour, say - has nothing for a
@@ -176,7 +180,7 @@ async function describeColorComposition(value: any, modeId: string): Promise<{ v
     throw new Error(`Composed colour points at a variable that no longer exists (${colorArgument.id})`)
   }
 
-  return { variable, opacity: opacity / 100 }
+  return { variable, opacity: opacity / 100, expressionFunction: value.expressionFunction }
 }
 
 async function processCollection({ name: collectionName, modes, variableIds }: VariableCollection, warnings: string[]) {
@@ -234,6 +238,9 @@ async function processCollection({ name: collectionName, modes, variableIds }: V
           // them - the rgba() above only holds for the mode we resolved.
           const composition = await describeColorComposition(value, mode.modeId)
           if (composition) {
+            // Name the expression Figma used so a consumer knows which recipe
+            // rebuilds the token rather than having to infer it from the fields.
+            obj.function = composition.expressionFunction
             obj.referencedVariable = `$${getVariableAlias(composition.variable)}`
             // Trailing float noise from multiplying opacities isn't meaningful.
             obj.opacity = parseFloat(composition.opacity.toFixed(4))
