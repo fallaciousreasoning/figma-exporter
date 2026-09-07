@@ -127,6 +127,8 @@
 <script async>
   let lastData = ''
 
+  let watchdog = null
+
   function requestData() {
     parent.postMessage({
       pluginMessage: {
@@ -139,22 +141,57 @@
       <span>Loading...</span>
     `
 
-    resultText.innerHTML = ``
+    resultText.value = ''
 
     for (const disable of document.querySelectorAll('.disableable')) {
       disable.setAttribute('disabled', '')
     }
+
+    // If the sandbox dies outright it never replies, so don't spin forever.
+    clearTimeout(watchdog)
+    watchdog = setTimeout(() => {
+      if (!lastData) {
+        resultText.value = 'No response from the plugin after 30s.\n\nOpen Plugins \u203a Development \u203a Open console to see the error.'
+      }
+    }, 30000)
   }
 
-  window.onmessage = ({ data: { pluginMessage } }) => {
-    if (pluginMessage.type === "EXPORT_RESULT") {
-      const json = JSON.stringify(pluginMessage.result, null, 2)
-      resultText.innerHTML = json
-      exportButton.innerHTML = "Download"
+  function finish(label) {
+    clearTimeout(watchdog)
+    exportButton.innerHTML = label
 
-      for (const disable of document.querySelectorAll('.disableable')) {
-        disable.removeAttribute('disabled')
-      }
+    for (const disable of document.querySelectorAll('.disableable')) {
+      disable.removeAttribute('disabled')
+    }
+  }
+
+  window.onmessage = (event) => {
+    // Figma forwards other messages into this frame too, so don't assume shape.
+    const pluginMessage = event.data && event.data.pluginMessage
+    if (!pluginMessage) return
+
+    if (pluginMessage.type === "EXPORT_STATUS") {
+      exportButton.innerHTML = `
+        <div class="spinner"></div>
+        <span>${pluginMessage.message}</span>
+      `
+      return
+    }
+
+    if (pluginMessage.type === "EXPORT_ERROR") {
+      lastData = ''
+      resultText.value = `Export failed:\n\n${pluginMessage.message}`
+      finish("Retry")
+      return
+    }
+
+    if (pluginMessage.type === "EXPORT_RESULT") {
+      const warnings = pluginMessage.warnings || []
+      lastData = JSON.stringify(pluginMessage.result, null, 2)
+      resultText.value = warnings.length
+        ? `// ${warnings.length} warning(s):\n${warnings.map(w => `// ${w}`).join('\n')}\n\n${lastData}`
+        : lastData
+      finish("Download")
     }
   };
 
@@ -164,7 +201,11 @@
   })
 
   exportButton.addEventListener('click', () => {
-    downloadData(document.querySelector("textarea").innerHTML, 'variables.json', 'application/json')
+    if (!lastData) {
+      requestData()
+      return
+    }
+    downloadData(lastData, 'variables.json', 'application/json')
   })
 
   function downloadData(data, name, type) {

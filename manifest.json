@@ -3,7 +3,7 @@
   "id": "1257537593446579409",
   "api": "1.0.0",
   "editorType": ["figma"],
-  "permissions": ["teamlibrary"],
+  "documentAccess": "dynamic-page",
   "main": "code.js",
   "ui":"ui.html"
 }
