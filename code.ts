@@ -122,7 +122,7 @@ const isColorExpression = (value: any): value is ColorExpression =>
 
 // Figma writes "reference X at 50%" as COMPOSE_COLOR(X, 50). That alpha is held
 // nowhere else - not on X, and not on the variable itself - so composing it here
-// is the only way to export the colour the design actually shows.
+// is the only way to get a concrete colour out of the expression.
 async function resolveColorExpression({ expressionFunction, expressionArguments }: ColorExpression, modeId: string, seen: Set<string>) {
   if (expressionFunction !== 'COMPOSE_COLOR') {
     throw new Error(`Unsupported colour expression ${expressionFunction}`)
@@ -145,6 +145,38 @@ async function resolveColorExpression({ expressionFunction, expressionArguments 
   // colour already carries rather than replacing it.
   const alpha = (typeof color.a === 'number' ? color.a : 1) * (opacity / 100)
   return { r: color.r, g: color.g, b: color.b, a: alpha }
+}
+
+// A composed colour flattened to rgba() stops following the theme, because the
+// channels it baked in came from whichever mode we happened to resolve. Keeping
+// the referenced colour and the opacity apart lets a consumer rebuild the colour
+// per theme, the same way it does for a plain reference.
+async function describeColorComposition(value: any, modeId: string): Promise<{ variable: Variable, opacity: number } | null> {
+  if (!isColorExpression(value) || value.expressionFunction !== 'COMPOSE_COLOR') return null
+
+  const [colorArgument, opacityArgument] = value.expressionArguments
+  const opacity: any = await getVariableValue(opacityArgument, modeId)
+  // An opacity we can't read as a number can't be handed to a consumer, so let
+  // the flat rgba() stand alone rather than exporting half a recipe.
+  if (typeof opacity !== 'number') return null
+
+  // Composing an already-composed colour nests the expressions, and Figma
+  // multiplies the opacities down the chain rather than replacing them.
+  const nested = await describeColorComposition(colorArgument, modeId)
+  if (nested) {
+    return { variable: nested.variable, opacity: nested.opacity * (opacity / 100) }
+  }
+
+  // Anything other than a reference - a literal colour, say - has nothing for a
+  // consumer to point at.
+  if (typeof colorArgument !== 'object' || colorArgument === null || colorArgument.type !== 'VARIABLE_ALIAS') return null
+
+  const variable = await figma.variables.getVariableByIdAsync(colorArgument.id)
+  if (!variable) {
+    throw new Error(`Composed colour points at a variable that no longer exists (${colorArgument.id})`)
+  }
+
+  return { variable, opacity: opacity / 100 }
 }
 
 async function processCollection({ name: collectionName, modes, variableIds }: VariableCollection, warnings: string[]) {
@@ -197,11 +229,19 @@ async function processCollection({ name: collectionName, modes, variableIds }: V
           const resolvedValue = await getVariableValue(value, mode.modeId)
           obj.value = formatVariableValue(rt, resolvedValue)
 
-          // Figma can't put an opacity on an alias, so a translucent token's
-          // alpha always lives on the color at the end of the chain. Pointing at
-          // the referenced variable would drop that alpha, so for these the
-          // inlined rgba() has to stand on its own.
-          if (value.type === "VARIABLE_ALIAS" && !isTranslucent(rt, resolvedValue)) {
+          // "Reference X at 50%" is an expression rather than an alias, so export
+          // the colour and the opacity separately and let the consumer compose
+          // them - the rgba() above only holds for the mode we resolved.
+          const composition = await describeColorComposition(value, mode.modeId)
+          if (composition) {
+            obj.referencedVariable = `$${getVariableAlias(composition.variable)}`
+            // Trailing float noise from multiplying opacities isn't meaningful.
+            obj.opacity = parseFloat(composition.opacity.toFixed(4))
+          } else if (value.type === "VARIABLE_ALIAS" && !isTranslucent(rt, resolvedValue)) {
+            // Figma can't put an opacity on an alias, so a translucent token's
+            // alpha always lives on the color at the end of the chain. Pointing
+            // at the referenced variable would drop that alpha, so for these the
+            // inlined rgba() has to stand on its own.
             const ref = await figma.variables.getVariableByIdAsync(value.id)
             obj.referencedVariable = `$${getVariableAlias(ref)}`
           }
