@@ -1,5 +1,3 @@
-console.clear();
-
 // These group names will be mapped in the generated variables file. null group
 // names will be skipped. For example, this means Themable/Dark/Pink/10 will be
 // exported as color.dark.pink[10] in the JSON and
@@ -10,15 +8,9 @@ const MAP_GROUP_NAMES = {
   'Themable': null
 }
 
-interface Collection {
-  id: string,
-  variableIds: string[],
-  name: string,
-  remote?: boolean,
-  modes: {
-    modeId: string
-    name: string
-  }[]
+function postStatus(message: string) {
+  console.log(`[export] ${message}`)
+  figma.ui.postMessage({ type: 'EXPORT_STATUS', message })
 }
 
 function sanitizeName(name: string) {
@@ -41,33 +33,26 @@ const getVariableAlias = (reference: Variable) => reference.name
   .join('.')
 
 async function exportToJSON() {
-  const collections: Collection[] = []
-  try {
-    const v = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync()
-    const remoteCollections = await Promise.all(v.map(async c => {
-      const variables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(c.key);
-      const result: Collection = {
-        id: c.libraryName,
-        name: c.name,
-        variableIds: variables.map(v => v.key),
-        modes: [{ modeId: 'default', name: 'Default' }],
-        remote: true
-      }
-      return result
-    }))
-    collections.push(...remoteCollections)
-  } catch (err: any) {
-    console.error(err)
+  const warnings: string[] = []
+
+  // We only export what this file owns. Variables from subscribed team
+  // libraries belong to their own file and should be exported from there.
+  postStatus('Reading collections in this file...')
+  const collections = await figma.variables.getLocalVariableCollectionsAsync()
+
+  if (!collections.length) {
+    warnings.push('This file has no variable collections of its own. Variables from subscribed libraries need to be exported from the file that defines them.')
   }
 
-  collections.push(...figma.variables.getLocalVariableCollections());
+  const totalVariables = collections.reduce((sum, c) => sum + c.variableIds.length, 0)
+  postStatus(`Processing ${totalVariables} variables across ${collections.length} collections...`)
 
   // We go to a bit of effort to get our tokens into a format that styled-tokens
   // will understand. All color sets belong under a top level 'color' heading.
   // There is no easy way to determine if a set is for colors, so we check to
   // see if the set name contains the word 'color'. High tech, I know :D
   // Similarly, easing and duration/timing collections get their own top-level keys.
-  const processedCollections = await Promise.all(collections.map(c => processCollection(c)))
+  const processedCollections = await Promise.all(collections.map(c => processCollection(c, warnings)))
   const result = processedCollections.reduce((prev, next) => {
     let target = prev
     const lowerName = next.name.toLowerCase()
@@ -93,30 +78,94 @@ async function exportToJSON() {
     return value
   }))
 
-  figma.ui.postMessage({ type: "EXPORT_RESULT", result: sanitized });
+  postStatus(`Done - exported ${totalVariables} variables.`)
+  figma.ui.postMessage({ type: "EXPORT_RESULT", result: sanitized, warnings });
 }
 
-const getVariableValue = async (variable: VariableValue, modeId: string) => {
+const getVariableValue = async (variable: VariableValue, modeId: string, seen: Set<string> = new Set()) => {
   if (typeof variable === 'object' && ('type' in variable) && variable.type === "VARIABLE_ALIAS") {
-    const aliased = await figma.variables.getVariableById(variable.id)
+    // A variable that aliases back into its own chain would recurse forever.
+    if (seen.has(variable.id)) {
+      throw new Error(`Circular variable alias involving ${variable.id}`)
+    }
+    seen.add(variable.id)
+
+    const aliased = await figma.variables.getVariableByIdAsync(variable.id)
+    if (!aliased) {
+      throw new Error(`Alias points at a variable that no longer exists (${variable.id})`)
+    }
 
     // If we have a mode in the alias which matches the mode of our variable, use that. Otherwise just take the first mode.
     const mode = aliased.valuesByMode[modeId] ?? Object.values(aliased.valuesByMode)[0]
-    return getVariableValue(mode, modeId)
+    return getVariableValue(mode, modeId, seen)
+  }
+
+  if (isColorExpression(variable)) {
+    return resolveColorExpression(variable, modeId, seen)
   }
 
   return variable
 }
 
-async function processCollection({ name, modes, variableIds, remote }: Collection) {
+// Referencing a variable at a reduced opacity is stored as an expression rather
+// than an alias, and @figma/plugin-typings doesn't describe it yet.
+interface ColorExpression {
+  type: 'VARIABLE_EXPRESSION'
+  expressionFunction: string
+  expressionArguments: any[]
+}
+
+const isColorExpression = (value: any): value is ColorExpression =>
+  typeof value === 'object'
+  && value !== null
+  && value.type === 'VARIABLE_EXPRESSION'
+
+// Figma writes "reference X at 50%" as COMPOSE_COLOR(X, 50). That alpha is held
+// nowhere else - not on X, and not on the variable itself - so composing it here
+// is the only way to export the colour the design actually shows.
+async function resolveColorExpression({ expressionFunction, expressionArguments }: ColorExpression, modeId: string, seen: Set<string>) {
+  if (expressionFunction !== 'COMPOSE_COLOR') {
+    throw new Error(`Unsupported colour expression ${expressionFunction}`)
+  }
+
+  // Each argument is its own branch of the alias graph, so give each a private
+  // copy of `seen` - one shared set would read a re-used variable as circular.
+  const [colorArgument, opacityArgument] = expressionArguments
+  const color: any = await getVariableValue(colorArgument, modeId, new Set(seen))
+  const opacity: any = await getVariableValue(opacityArgument, modeId, new Set(seen))
+
+  if (typeof color !== 'object' || color === null) {
+    throw new Error(`${expressionFunction} expected a colour, got ${JSON.stringify(color)}`)
+  }
+  if (typeof opacity !== 'number') {
+    throw new Error(`${expressionFunction} expected a numeric opacity, got ${JSON.stringify(opacity)}`)
+  }
+
+  // The opacity is a percentage, and it multiplies whatever alpha the referenced
+  // colour already carries rather than replacing it.
+  const alpha = (typeof color.a === 'number' ? color.a : 1) * (opacity / 100)
+  return { r: color.r, g: color.g, b: color.b, a: alpha }
+}
+
+async function processCollection({ name: collectionName, modes, variableIds }: VariableCollection, warnings: string[]) {
   const result = {}
   const onlyOneMode = modes.length === 1
+
+  const variables = await Promise.all(variableIds.map(async (variableId) => {
+    try {
+      return await figma.variables.getVariableByIdAsync(variableId)
+    } catch (err: any) {
+      warnings.push(`${collectionName}: could not load variable ${variableId} - ${err?.message ?? err}`)
+      return null
+    }
+  }))
+
   for (const mode of modes) {
     const target: any = onlyOneMode ? result : (result[mode.name] = {})
-    for (const variableId of variableIds) {
-      // Library variables need to be imported by key
-      const method: (keyof typeof figma.variables) = remote ? 'importVariableByKeyAsync' : 'getVariableById'
-      const { name, resolvedType, valuesByMode } = await figma.variables[method](variableId);
+    for (const variable of variables) {
+      if (!variable) continue
+
+      const { name, resolvedType, valuesByMode } = variable;
       const rt = resolvedType as string
       const value: any = valuesByMode[mode.modeId];
       if (value !== undefined && ["COLOR", "FLOAT", "TIMING", "EASING"].includes(rt)) {
@@ -140,34 +189,55 @@ async function processCollection({ name, modes, variableIds, remote }: Collectio
         }
         obj.type = typeMap[rt] ?? rt.toLowerCase();
 
-        if (value.type === "VARIABLE_ALIAS") {
+        // One malformed variable shouldn't take down the whole export, and the
+        // warning needs to name it so it can actually be found in Figma.
+        try {
+          // Resolve before formatting whether or not this looks like an alias -
+          // the formatters only understand concrete values.
           const resolvedValue = await getVariableValue(value, mode.modeId)
           obj.value = formatVariableValue(rt, resolvedValue)
 
-          const ref = figma.variables.getVariableById(value.id)
-          obj.referencedVariable = `$${getVariableAlias(ref)}`
-        } else {
-          obj.value = formatVariableValue(rt, value)
+          // Figma can't put an opacity on an alias, so a translucent token's
+          // alpha always lives on the color at the end of the chain. Pointing at
+          // the referenced variable would drop that alpha, so for these the
+          // inlined rgba() has to stand on its own.
+          if (value.type === "VARIABLE_ALIAS" && !isTranslucent(rt, resolvedValue)) {
+            const ref = await figma.variables.getVariableByIdAsync(value.id)
+            obj.referencedVariable = `$${getVariableAlias(ref)}`
+          }
+        } catch (err: any) {
+          warnings.push(`${collectionName} \u203a ${name} (${rt}, mode "${mode.name}"): ${err?.message ?? err}`)
         }
       }
     }
   }
 
-  const maybeWrapped = name.toLowerCase().includes('typography')
+  const maybeWrapped = collectionName.toLowerCase().includes('typography')
     ? {
       typography: result
     }
     : result
 
   return {
-    name,
+    name: collectionName,
     result: maybeWrapped
   }
 }
 
-figma.ui.onmessage = (e) => {
-  if (e.type === "EXPORT") {
-    return exportToJSON()
+figma.ui.onmessage = async (e) => {
+  if (e.type !== "EXPORT") return
+
+  try {
+    await exportToJSON()
+  } catch (err: any) {
+    // Without this the promise rejects silently and the UI spins forever.
+    console.error('[export] failed', err)
+    // Figma's stack traces omit the message line, so send both.
+    const detail = [err?.message, err?.stack].filter(Boolean).join('\n')
+    figma.ui.postMessage({
+      type: "EXPORT_ERROR",
+      message: detail || String(err)
+    })
   }
 };
 
@@ -177,7 +247,15 @@ figma.showUI(__html__, {
   themeColors: true
 })
 
-function rgbToHex({ r, g, b, a }) {
+// Variable colors come through as RGBA, but plain RGB (no alpha) shows up too.
+function rgbToHex(color) {
+  const { r, g, b, a = 1 } = color
+  if ([r, g, b, a].some(n => typeof n !== 'number')) {
+    // Report the value we were handed, not the destructured channels - those
+    // are all `undefined` for any unexpected shape and name nothing.
+    throw new Error(`Expected an RGB(A) color, got ${JSON.stringify(color)}`)
+  }
+
   if (a !== 1) {
     return `rgba(${[r, g, b]
       .map((n) => Math.round(n * 255))
@@ -192,8 +270,21 @@ function rgbToHex({ r, g, b, a }) {
   return `#${hex}`;
 }
 
+// A translucent color can only be exported as a literal rgba(), never as a
+// reference to another variable.
+function isTranslucent(resolvedType: string, value: any) {
+  return resolvedType === "COLOR"
+    && typeof value === 'object'
+    && value !== null
+    && typeof value.a === 'number'
+    && value.a !== 1
+}
+
 function formatVariableValue(resolvedType: string, value: any) {
   if (resolvedType === "COLOR") {
+    if (typeof value !== 'object' || value === null) {
+      throw new Error(`Expected a color object, got ${JSON.stringify(value)}`)
+    }
     return rgbToHex(value)
   }
   if (resolvedType === "TIMING") {
