@@ -13,8 +13,12 @@ function postStatus(message: string) {
   figma.ui.postMessage({ type: 'EXPORT_STATUS', message })
 }
 
+// Keys we add ourselves are already in the shape consumers expect, so they skip
+// the lower casing that variable names go through.
+const RESERVED_KEYS = ['referencedVariable', 'expressionFunction']
+
 function sanitizeName(name: string) {
-  if (name === 'referencedVariable') return name
+  if (RESERVED_KEYS.includes(name)) return name
   return name.toLowerCase() // Names should be lower case
     .replace('%', '') // Don't export % in the names
     .replace(/[^a-zA-Z0-9-.]/g, '-') // Any special characters should be replaced with a -
@@ -240,7 +244,7 @@ async function processCollection({ name: collectionName, modes, variableIds }: V
           if (composition) {
             // Name the expression Figma used so a consumer knows which recipe
             // rebuilds the token rather than having to infer it from the fields.
-            obj.function = composition.expressionFunction
+            obj.expressionFunction = composition.expressionFunction
             obj.referencedVariable = `$${getVariableAlias(composition.variable)}`
             // Trailing float noise from multiplying opacities isn't meaningful.
             obj.opacity = parseFloat(composition.opacity.toFixed(4))
